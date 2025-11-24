@@ -28,4 +28,4 @@ Notes for AWS Lambda deployment:
 See individual service folders for more details.
 
 
-# Como crear lambdas desde linea de comando:
+
