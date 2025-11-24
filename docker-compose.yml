@@ -1,0 +1,41 @@
+version: '3.8'
+services:
+  products:
+    build: ./products
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_PORT=5432
+      - DB_NAME=ecommerce
+      - DB_USER=postgres
+      - DB_PASSWORD=Apple2000!
+    # Resuelve el hostname del host local dentro del contenedor
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8001"
+
+  auth:
+    build: ./auth
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_PORT=5432
+      - DB_NAME=ecommerce
+      - DB_USER=postgres
+      - DB_PASSWORD=Apple2000!
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8002:8002"
+
+  orders:
+    build: ./orders
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_PORT=5432
+      - DB_NAME=ecommerce
+      - DB_USER=postgres
+      - DB_PASSWORD=Apple2000!
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8003:8003"

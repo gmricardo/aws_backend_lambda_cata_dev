@@ -1,0 +1,99 @@
+name: Build and Deploy Lambdas (Integration)
+
+on:
+  push:
+    branches: [ integration ]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  IMAGE_TAG: integration
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: AWS_Config_Orange
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r auth/requirements.txt
+          pip install -r products/requirements.txt
+          pip install -r orders/requirements.txt
+
+      - name: Run unit tests
+        run: |
+          pytest auth/tests -q
+          pytest products/tests -q
+          pytest orders/tests -q
+        env:
+          PYTHONWARNINGS: ignore
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS account ID
+        id: aws-account
+        run: echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Ensure ECR repositories exist
+        run: |
+          set -e
+          for svc in auth products orders; do
+            repo="${{ env.ECR_REPOSITORY }}-$svc"
+            if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
+              aws ecr create-repository --repository-name "$repo" >/dev/null
+            fi
+          done
+
+      - name: Build and push auth image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./auth
+          push: true
+          tags: ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-auth:${{ env.IMAGE_TAG }}
+
+      - name: Build and push products image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./products
+          push: true
+          tags: ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-products:${{ env.IMAGE_TAG }}
+
+      - name: Build and push orders image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./orders
+          push: true
+          tags: ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-orders:${{ env.IMAGE_TAG }}
+
+      - name: Deploy auth Lambda (update image)
+        run: |
+          IMAGE_URI=${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-auth:${{ env.IMAGE_TAG }}
+          aws lambda update-function-code --function-name ${{ secrets.LAMBDA_AUTH_NAME }} --image-uri "$IMAGE_URI"
+
+      - name: Deploy products Lambda (update image)
+        run: |
+          IMAGE_URI=${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-products:${{ env.IMAGE_TAG }}
+          aws lambda update-function-code --function-name ${{ secrets.LAMBDA_PRODUCTS_NAME }} --image-uri "$IMAGE_URI"
+
+      - name: Deploy orders Lambda (update image)
+        run: |
+          IMAGE_URI=${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}-orders:${{ env.IMAGE_TAG }}
+          aws lambda update-function-code --function-name ${{ secrets.LAMBDA_ORDERS_NAME }} --image-uri "$IMAGE_URI"
